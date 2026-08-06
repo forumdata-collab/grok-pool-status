@@ -51,6 +51,23 @@ td{color:var(--text)}
 .ok-t{color:var(--green)} .bad-t{color:var(--red)} .dim-t{color:var(--dim)}
 
 .footer{text-align:center;padding:20px 0 0;font-size:11px;color:rgba(255,255,255,0.2);border-top:1px solid rgba(255,255,255,0.04);margin-top:20px}
+
+/* 小標題快跳（參考 hermes-oracle-guide toc） */
+.toc{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:6px 0 22px}
+.toc a{font-size:12px;color:var(--dim);text-decoration:none;padding:4px 12px;border-radius:8px;border:1px solid var(--border);transition:all .2s}
+.toc a:hover{color:var(--text);border-color:rgba(255,255,255,0.15)}
+html{scroll-behavior:smooth;scroll-padding-top:20px}
+
+/* 返回頂部 */
+#backToTop{position:fixed;bottom:24px;right:24px;width:48px;height:48px;border-radius:50%;background:var(--teal);color:#06231f;border:none;font-size:20px;font-weight:700;cursor:pointer;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,.35);display:none;transition:opacity .3s,transform .3s}
+#backToTop:hover{transform:translateY(-3px)}
+#backToTop.show{display:block}
+
+/* ko-fi 底部欄 */
+.kofi-bar{text-align:center;padding:26px 20px 34px;margin-top:28px;border-top:2px solid rgba(255,255,255,0.08);background:var(--card);color:var(--dim);font-size:13px}
+.kofi-bar p{margin:0 0 14px}
+.kofi-bar a{display:inline-flex;align-items:center;gap:10px;padding:12px 28px;background:#ff5e5b;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;font-size:15px}
+.kofi-bar a:hover{filter:brightness(1.08)}
 @media(max-width:640px){.container{padding:18px 14px 40px}.header h1{font-size:18px}}
 </style>
 </head>
@@ -66,9 +83,18 @@ td{color:var(--text)}
 
   <div id="stale-banner">⚠️ 資料已過期（超過 2 分鐘未更新）— 檢查 collector / cron 是否正常</div>
 
+  <!-- 小標題快跳 -->
+  <div class="toc">
+    <a href="#gw-card">🖥️ Gateway</a>
+    <a href="#acc-card">👥 帳號池</a>
+    <a href="#quota-card">📊 配額</a>
+    <a href="#act-card">🔬 活動實測</a>
+    <a href="#batch-card">📦 批次記錄</a>
+  </div>
+
   <div class="grid">
     <!-- Gateway -->
-    <div class="card">
+    <div class="card" id="gw-card">
       <h3>🖥️ Gateway</h3>
       <div class="big" id="gw-health">—</div>
       <div class="sub">API <span id="gw-api">—</span> · 延遲 <span id="gw-lat">—</span></div>
@@ -79,7 +105,7 @@ td{color:var(--text)}
     </div>
 
     <!-- 帳號池 -->
-    <div class="card">
+    <div class="card" id="acc-card">
       <h3>👥 帳號池</h3>
       <div class="big"><span id="acc-total">—</span> <span style="font-size:14px;color:var(--dim)">個帳號</span></div>
       <div class="sub"><span class="pill ok" id="acc-active">— active</span> <span class="pill warn" id="acc-reauth">— reauth</span> <span class="pill muted" id="acc-cooldown">— 冷卻</span></div>
@@ -95,7 +121,7 @@ td{color:var(--text)}
     </div>
 
     <!-- 配額 -->
-    <div class="card">
+    <div class="card" id="quota-card">
       <h3>📊 Console 配額</h3>
       <div class="big" id="quota-used">—</div>
       <div class="sub" id="quota-nums">—</div>
@@ -107,7 +133,7 @@ td{color:var(--text)}
     </div>
 
     <!-- 活動 / 實測 -->
-    <div class="card">
+    <div class="card" id="act-card">
       <h3>🔬 活動與實測</h3>
       <div class="row"><span>最近請求</span><b id="act-last">—</b></div>
       <div class="row"><span>上次實測 probe</span><b id="probe-time">—</b></div>
@@ -117,7 +143,7 @@ td{color:var(--text)}
   </div>
 
   <!-- 批次記錄 -->
-  <div class="card" style="grid-column:1/-1">
+  <div class="card" id="batch-card" style="grid-column:1/-1">
     <h3>📦 最近註冊批次</h3>
     <div style="overflow-x:auto">
       <table>
@@ -127,8 +153,16 @@ td{color:var(--text)}
     </div>
   </div>
 
-  <div class="footer">Grok Pool 健康監察 · 每分鐘自動更新 · 資料來源：grok2api admin API + 本機 collector</div>
+  <div class="footer">
+    <p>Grok Pool 健康監察 · 每分鐘自動更新 · 資料來源：grok2api admin API + 本機 collector</p>
+    <div class="kofi-bar">
+      <p>喜歡這個監察頁？請我飲杯咖啡 ☕</p>
+      <a href="https://ko-fi.com/forumdata" target="_blank" rel="noopener">☕ 請我飲咖啡</a>
+    </div>
+  </div>
 </div>
+
+<button id="backToTop" aria-label="返回頂部" title="返回頂部">▲</button>
 
 <script>
 (function () {
@@ -229,6 +263,13 @@ td{color:var(--text)}
 
   load();
   setInterval(load, 60000);
+
+  // 返回頂部（本頁較短，閾值 200px）
+  var btt = document.getElementById('backToTop');
+  window.addEventListener('scroll', function () {
+    btt.classList.toggle('show', window.scrollY > 200);
+  }, { passive: true });
+  btt.addEventListener('click', function () { window.scrollTo({ top: 0, behavior: 'smooth' }); });
 })();
 </script>
 </body>
