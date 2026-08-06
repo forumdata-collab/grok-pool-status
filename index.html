@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Grok API Pool 健康監察狀態 — 每分鐘更新（帳號池 / 配額 / Gateway / 批次記錄）">
+<title>Grok Pool 健康監察</title>
+<style>
+:root{--bg1:#0f0c29;--bg2:#302b63;--bg3:#24243e;--card:rgba(255,255,255,0.05);--border:rgba(255,255,255,0.08);--text:#e8e8e8;--dim:rgba(255,255,255,0.45);--accent:#6c8cff;--green:#4ade80;--orange:#fb923c;--red:#f87171;--teal:#2dd4bf;--cyan:#22d3ee;--teal-dim:rgba(45,212,191,0.12);--cyan-dim:rgba(34,211,238,0.12)}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Hiragino Sans GB','Microsoft YaHei','Noto Sans SC',sans-serif;background:linear-gradient(135deg,var(--bg1),var(--bg2),var(--bg3));color:var(--text);min-height:100vh;line-height:1.6}
+.container{max-width:920px;margin:0 auto;padding:24px 20px 60px}
+
+.header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+.header h1{font-size:22px;font-weight:800;background:linear-gradient(135deg,#2dd4bf,#22d3ee);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.header .meta{font-size:12px;color:var(--dim);text-align:right}
+.header .meta .upd{color:var(--teal)}
+#stale-banner{display:none;background:rgba(248,113,113,0.1);border:1px solid rgba(248,113,113,0.25);color:var(--red);font-size:13px;padding:10px 16px;border-radius:10px;margin-bottom:14px}
+
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;margin-bottom:14px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:18px}
+.card h3{font-size:13px;font-weight:700;color:var(--dim);margin-bottom:12px;display:flex;align-items:center;gap:6px}
+.card .big{font-size:30px;font-weight:800;line-height:1.1}
+.card .sub{font-size:12px;color:var(--dim);margin-top:4px}
+.row{display:flex;justify-content:space-between;font-size:13px;padding:4px 0;color:var(--dim)}
+.row b{color:var(--text)}
+.pill{display:inline-block;padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700}
+.pill.ok{background:rgba(74,222,128,0.12);color:var(--green);border:1px solid rgba(74,222,128,0.2)}
+.pill.warn{background:rgba(251,191,36,0.12);color:var(--orange);border:1px solid rgba(251,191,36,0.2)}
+.pill.bad{background:rgba(248,113,113,0.12);color:var(--red);border:1px solid rgba(248,113,113,0.2)}
+.pill.muted{background:rgba(255,255,255,0.06);color:var(--dim);border:1px solid var(--border)}
+
+/* 配額 gauge */
+.gauge{position:relative;height:18px;background:rgba(255,255,255,0.06);border-radius:9px;overflow:visible;margin:10px 0 6px}
+.gauge .fill{position:absolute;left:0;top:0;bottom:0;border-radius:9px;background:linear-gradient(90deg,#2dd4bf,#22d3ee);transition:width .8s}
+.gauge .fill.warn{background:linear-gradient(90deg,#fb923c,#fbbf24)}
+.gauge .fill.full{background:linear-gradient(90deg,#f87171,#ef4444)}
+.gauge .warn-line{position:absolute;left:80%;top:-4px;bottom:-4px;width:2px;background:rgba(251,191,36,0.7);z-index:2}
+.gauge-labels{display:flex;justify-content:space-between;font-size:11px;color:var(--dim)}
+
+.bar{display:flex;height:8px;border-radius:4px;overflow:hidden;background:rgba(255,255,255,0.06);margin-top:8px}
+.bar .seg{transition:width .6s}
+.bar .seg.console{background:#2dd4bf}
+.bar .seg.web{background:#6c8cff}
+.bar .seg.bad{background:#f87171}
+
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th,td{padding:7px 10px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.05)}
+th{color:var(--dim);font-weight:600}
+td{color:var(--text)}
+.ok-t{color:var(--green)} .bad-t{color:var(--red)} .dim-t{color:var(--dim)}
+
+.footer{text-align:center;padding:20px 0 0;font-size:11px;color:rgba(255,255,255,0.2);border-top:1px solid rgba(255,255,255,0.04);margin-top:20px}
+@media(max-width:640px){.container{padding:18px 14px 40px}.header h1{font-size:18px}}
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <h1>⚡ Grok Pool 健康監察</h1>
+    <div class="meta">
+      <div>最後更新 <span class="upd" id="upd">—</span></div>
+      <div>自動刷新：每 60 秒 <span id="refresh-dot">🟢</span></div>
+    </div>
+  </div>
+
+  <div id="stale-banner">⚠️ 資料已過期（超過 2 分鐘未更新）— 檢查 collector / cron 是否正常</div>
+
+  <div class="grid">
+    <!-- Gateway -->
+    <div class="card">
+      <h3>🖥️ Gateway</h3>
+      <div class="big" id="gw-health">—</div>
+      <div class="sub">API <span id="gw-api">—</span> · 延遲 <span id="gw-lat">—</span></div>
+      <div style="margin-top:10px">
+        <div class="row"><span>近 1 小時請求</span><b id="gw-req">—</b></div>
+        <div class="row"><span>近 1 小時錯誤</span><b id="gw-err">—</b></div>
+      </div>
+    </div>
+
+    <!-- 帳號池 -->
+    <div class="card">
+      <h3>👥 帳號池</h3>
+      <div class="big"><span id="acc-total">—</span> <span style="font-size:14px;color:var(--dim)">個帳號</span></div>
+      <div class="sub"><span class="pill ok" id="acc-active">— active</span> <span class="pill warn" id="acc-reauth">— reauth</span> <span class="pill muted" id="acc-cooldown">— 冷卻</span></div>
+      <div class="bar">
+        <div class="seg console" id="seg-console"></div>
+        <div class="seg web" id="seg-web"></div>
+        <div class="seg bad" id="seg-bad"></div>
+      </div>
+      <div style="margin-top:6px">
+        <div class="row"><span>console</span><b id="acc-console">—</b></div>
+        <div class="row"><span>web</span><b id="acc-web">—</b></div>
+      </div>
+    </div>
+
+    <!-- 配額 -->
+    <div class="card">
+      <h3>📊 Console 配額</h3>
+      <div class="big" id="quota-used">—</div>
+      <div class="sub" id="quota-nums">—</div>
+      <div class="gauge">
+        <div class="warn-line"></div>
+        <div class="fill" id="quota-fill" style="width:0%"></div>
+      </div>
+      <div class="gauge-labels"><span>0%</span><span style="color:var(--orange)">80% 警戒</span><span>100%</span></div>
+    </div>
+
+    <!-- 活動 / 實測 -->
+    <div class="card">
+      <h3>🔬 活動與實測</h3>
+      <div class="row"><span>最近請求</span><b id="act-last">—</b></div>
+      <div class="row"><span>上次實測 probe</span><b id="probe-time">—</b></div>
+      <div class="row"><span>實測結果</span><b id="probe-result">—</b></div>
+      <div class="row"><span>今日 probe 次數</span><b id="probe-count">—</b></div>
+    </div>
+  </div>
+
+  <!-- 批次記錄 -->
+  <div class="card" style="grid-column:1/-1">
+    <h3>📦 最近註冊批次</h3>
+    <div style="overflow-x:auto">
+      <table>
+        <thead><tr><th>時間</th><th>批次</th><th>成功</th><th>失敗</th><th>匯入(console+web)</th></tr></thead>
+        <tbody id="batch-body"><tr><td colspan="5" class="dim-t">載入中…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="footer">Grok Pool 健康監察 · 每分鐘自動更新 · 資料來源：grok2api admin API + 本機 collector</div>
+</div>
+
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+
+  function fmtAgo(min) {
+    if (min === null || min === undefined) return '—';
+    if (min < 1) return '剛剛';
+    if (min < 60) return min + ' 分鐘前';
+    return Math.floor(min / 60) + ' 小時前';
+  }
+
+  function render(d) {
+    $('upd').textContent = d.ts || d.updated_at || '—';
+
+    // Gateway
+    var gw = d.gateway || {};
+    var hEl = $('gw-health');
+    if (gw.health === 'healthy') { hEl.textContent = '🟢 正常'; hEl.style.color = 'var(--green)'; }
+    else if (gw.health === 'unhealthy') { hEl.textContent = '🟡 異常'; hEl.style.color = 'var(--orange)'; }
+    else { hEl.textContent = '🔴 離線'; hEl.style.color = 'var(--red)'; }
+    $('gw-api').textContent = gw.api_ok ? '✅ 可達' : '❌ 不可達';
+    $('gw-lat').textContent = gw.latency_ms != null ? gw.latency_ms + ' ms' : '—';
+    $('gw-req').textContent = gw.requests_1h != null ? gw.requests_1h : '—';
+    $('gw-err').textContent = gw.errors_1h != null ? gw.errors_1h : '—';
+
+    // 帳號池
+    var a = d.accounts || {};
+    $('acc-total').textContent = a.total != null ? a.total : '—';
+    $('acc-active').textContent = (a.active != null ? a.active : '—') + ' active';
+    $('acc-reauth').textContent = (a.reauth != null ? a.reauth : '—') + ' reauth';
+    $('acc-cooldown').textContent = (a.cooldown != null ? a.cooldown : '—') + ' 冷卻';
+    $('acc-console').textContent = a.console != null ? a.console : '—';
+    $('acc-web').textContent = a.web != null ? a.web : '—';
+    var tot = (a.console || 0) + (a.web || 0) || 1;
+    $('seg-console').style.width = ((a.console || 0) / tot * 100) + '%';
+    $('seg-web').style.width = ((a.web || 0) / tot * 100) + '%';
+    $('seg-bad').style.width = ((a.reauth || 0) / tot * 100) + '%';
+    $('acc-reauth').className = 'pill ' + ((a.reauth || 0) > 0 ? 'warn' : 'muted');
+    $('acc-cooldown').className = 'pill ' + ((a.cooldown || 0) > 0 ? 'warn' : 'muted');
+
+    // 配額
+    var q = d.quota || {};
+    var usedPct = q.used_pct != null ? q.used_pct : null;
+    $('quota-nums').textContent = (q.remaining != null ? q.remaining : '—') + ' / ' + (q.total != null ? q.total : '—') + ' 請求/日 · ' + (q.windows != null ? q.windows : '—') + ' 窗口';
+    var fill = $('quota-fill');
+    if (usedPct === null) { $('quota-used').textContent = '—'; fill.style.width = '0%'; }
+    else {
+      $('quota-used').textContent = usedPct + '%';
+      fill.style.width = Math.min(usedPct, 100) + '%';
+      fill.className = 'fill ' + (usedPct >= 100 ? 'full' : (usedPct >= 80 ? 'warn' : ''));
+      $('quota-used').style.color = usedPct >= 100 ? 'var(--red)' : (usedPct >= 80 ? 'var(--orange)' : 'var(--text)');
+    }
+
+    // 活動 / 實測
+    var act = d.activity || {};
+    $('act-last').textContent = act.last_used_ago_min != null ? fmtAgo(act.last_used_ago_min) : '—';
+    var pr = d.probe || {};
+    $('probe-time').textContent = pr.last || '—';
+    var prEl = $('probe-result');
+    if (pr.ok === true) { prEl.textContent = '✅ ' + (pr.content || ''); prEl.className = 'ok-t'; }
+    else if (pr.ok === false) { prEl.textContent = '❌ ' + (pr.content || '失敗'); prEl.className = 'bad-t'; }
+    else { prEl.textContent = '—'; }
+    $('probe-count').textContent = pr.count_today != null ? pr.count_today : '—';
+
+    // 批次
+    var tb = $('batch-body');
+    if (d.batches && d.batches.length) {
+      tb.innerHTML = d.batches.map(function (b) {
+        var ok = b.success != null ? b.success : '—';
+        var fail = b.failed != null ? b.failed : '—';
+        return '<tr><td>' + (b.time || '') + '</td><td class="dim-t">' + (b.file || '') + '</td>' +
+          '<td class="ok-t">' + ok + '</td><td class="' + (fail > 0 ? 'bad-t' : 'ok-t') + '">' + fail + '</td>' +
+          '<td>' + b.imported + '</td></tr>';
+      }).join('');
+    } else {
+      tb.innerHTML = '<tr><td colspan="5" class="dim-t">暫無批次記錄</td></tr>';
+    }
+
+    // 過期偵測
+    var stale = (Date.now() / 1000 - (d.ts_unix || 0)) > 150;
+    $('stale-banner').style.display = stale ? 'block' : 'none';
+    $('refresh-dot').textContent = stale ? '🔴' : '🟢';
+  }
+
+  function load() {
+    // 数据源：VM collector 每分鐘生成（GitHub Pages 版跨域 fetch，CORS 已開）
+    var DATA_URL = 'https://hermesagent.de5.net:2096/grok-pool/status.json';
+    fetch(DATA_URL + '?cb=' + Date.now(), { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(render)
+      .catch(function (e) {
+        $('stale-banner').style.display = 'block';
+        $('refresh-dot').textContent = '🔴';
+        $('upd').textContent = '載入失敗：' + e.message;
+      });
+  }
+
+  load();
+  setInterval(load, 60000);
+})();
+</script>
+</body>
+</html>
